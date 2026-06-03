@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar, BarChart, Cell, ReferenceLine } from "recharts";
 
 // ===== Fallback snapshot (ADBE) shown before the first live fetch =====
 const FALLBACK = {
@@ -32,6 +32,44 @@ function finishProb(b, nu, sigma, t) {
   if (t <= 0 || sigma <= 0) return 0;
   const s = sigma * Math.sqrt(t);
   return Math.min(1, Math.max(0, Phi((-b + nu * t) / s)));
+}
+
+// ---------- Black-Scholes-Merton (risk-neutral) call price ----------
+function bsmCall(S, K, T, r, sigma) {
+  if (T <= 0 || sigma <= 0) return Math.max(0, S - K * Math.exp(-r * T));
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
+  const d2 = d1 - sigma * sqrtT;
+  return S * Phi(d1) - K * Math.exp(-r * T) * Phi(d2);
+}
+// Back out IV from a market premium by bisection. null if premium <= intrinsic (no time value).
+function impliedVol(price, S, K, T, r) {
+  const intrinsic = Math.max(0, S - K * Math.exp(-r * T));
+  if (!(price > intrinsic + 1e-4) || T <= 0) return null;
+  let lo = 1e-4, hi = 5;
+  if (bsmCall(S, K, T, r, hi) < price) return null;
+  for (let i = 0; i < 100; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (bsmCall(S, K, T, r, mid) > price) hi = mid; else lo = mid;
+  }
+  return 0.5 * (lo + hi);
+}
+// ---------- Long-call economics under a chosen (physical) measure ----------
+// mu, sigma annualized (decimals); T in years; premium per share.
+function callEconomics(S0, K, premium, sigma, mu, r, T) {
+  const sqrtT = Math.sqrt(T);
+  const drift = (mu - 0.5 * sigma * sigma) * T; // drift of ln(S_T)
+  const s = sigma * sqrtT;
+  const d2 = (Math.log(S0 / K) + drift) / s; // P(S_T > K)
+  const d1 = d2 + s;
+  const pITM = Phi(d2);
+  const expPayoff = S0 * Math.exp(mu * T) * Phi(d1) - K * Phi(d2); // E_P[max(S_T-K,0)], value at expiry
+  const BE = K + premium;
+  const POP = Phi((Math.log(S0 / BE) + drift) / s);
+  const EV = expPayoff - premium * Math.exp(r * T); // expected profit at expiry vs risk-free-grown premium
+  const EVpct = premium > 0 ? (EV / premium) * 100 : 0;
+  const iv = impliedVol(premium, S0, K, T, r);
+  return { K, premium, BE, pITM: pITM * 100, POP: POP * 100, expPayoff, EV, EVpct, iv: iv == null ? null : iv * 100 };
 }
 
 const HORIZONS = [
@@ -156,6 +194,24 @@ tbody td:first-child{font-family:'Assistant',sans-serif;color:var(--ink);font-we
 .spin{width:14px;height:14px;border:2px solid #06121c;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .num,.px,.chip .v,.stat .row b,.dstat .val,.movebar b.n{direction:ltr;unicode-bidi:isolate}
+
+/* ---- options ranker ---- */
+.opt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:14px}
+@media(max-width:560px){.opt-grid{grid-template-columns:1fr}}
+.opt-tbl{width:100%;border-collapse:collapse;font-size:15px;min-width:300px}
+.opt-tbl th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);text-align:right;padding:7px 9px;border-bottom:1px solid var(--border);font-weight:700}
+.opt-tbl td{padding:6px 9px}
+.opt-tbl input{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:15px;font-family:var(--mono);outline:none}
+.opt-tbl input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.13)}
+.minibtn{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--ink);border-radius:8px;cursor:pointer;padding:8px 15px;font-size:14px;font-family:inherit;font-weight:600;transition:all .15s}
+.minibtn:hover{border-color:var(--accent);color:var(--accent)}
+.delbtn{background:none;border:1px solid var(--border);color:var(--down);border-radius:7px;cursor:pointer;padding:6px 10px;font-size:13px;line-height:1}
+.delbtn:hover{border-color:var(--down)}
+.implied-btn{width:100%;text-align:right;cursor:pointer;background:rgba(34,211,238,.07);border:1px solid var(--border);color:var(--accent);border-radius:9px;padding:10px 12px;font-size:15px;font-family:var(--mono);font-weight:600;transition:all .15s}
+.implied-btn:hover{border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.12)}
+.rank-row1 td{background:rgba(34,211,238,.07)}
+.warnbox{background:rgba(244,114,182,.07);border:1px solid rgba(244,114,182,.35);color:var(--ph);border-radius:10px;padding:11px 14px;font-size:13px;line-height:1.6;margin-bottom:16px}
+.warnbox b{color:var(--ink)}
 `;
 
 export default function App() {
@@ -172,6 +228,16 @@ export default function App() {
   const [rPct, setRPct] = useState(FALLBACK.rate);
   const [ivStr, setIvStr] = useState("");
   const [touched, setTouched] = useState(false);
+
+  // ----- Options-ranking module state -----
+  const [optDays, setOptDays] = useState(182);   // tenor in calendar days (~6m)
+  const [targetPx, setTargetPx] = useState(320);  // thesis price target (for implied-drift helper)
+  const [rankBy, setRankBy] = useState("EVpct");
+  const [options, setOptions] = useState([        // PLACEHOLDER quotes — replace with real broker mid/ask
+    { id: 1, K: 280, premium: 18 },
+    { id: 2, K: 300, premium: 11 },
+    { id: 3, K: 320, premium: 6.5 },
+  ]);
 
   const fetchSymbol = useCallback(async (sym) => {
     const s = (sym || "").trim().toUpperCase();
@@ -247,6 +313,24 @@ export default function App() {
     return pts;
   }, [b, sigma, muHist, r, isUp, hasIV, ivSigma]);
 
+  // ----- Options ranking: physical-measure EV per strike (held to expiry) -----
+  const optT = optDays / 365;
+  const impliedMuPct = optT > 0 ? (Math.log(targetPx / S0) / optT) * 100 : 0; // drift whose MEAN path lands on target
+
+  const rankedOptions = useMemo(() => {
+    const rows = options
+      .filter(o => o.K > 0 && o.premium > 0)
+      .map(o => ({ id: o.id, ...callEconomics(S0, o.K, o.premium, sigma, muHist, r, optT) }));
+    const higherBetter = rankBy !== "iv"; // for IV, cheaper (lower) ranks first
+    const fb = higherBetter ? -Infinity : Infinity;
+    const sorted = [...rows].sort((x, y) => {
+      const xv = x[rankBy] == null ? fb : x[rankBy];
+      const yv = y[rankBy] == null ? fb : y[rankBy];
+      return higherBetter ? yv - xv : xv - yv;
+    });
+    return sorted.map((row, i) => ({ ...row, rank: i + 1 }));
+  }, [options, S0, sigma, muHist, r, optT, rankBy]);
+
   // Historical daily log-return distribution + moments + normal overlay
   const dist = useMemo(() => {
     const closes = (snap.series || []).map(p => p.c);
@@ -272,6 +356,11 @@ export default function App() {
 
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const pctColor = (v) => v == null ? C.sub : v >= 0 ? C.up : C.down;
+
+  const updateOpt = (id, field, val) => setOptions(os => os.map(o => o.id === id ? { ...o, [field]: val === "" ? "" : +val } : o));
+  const addOpt = () => setOptions(os => [...os, { id: os.reduce((m, o) => Math.max(m, o.id), 0) + 1, K: 0, premium: 0 }]);
+  const removeOpt = (id) => setOptions(os => os.filter(o => o.id !== id));
+  const RANK_LABELS = { EVpct: "תוחלת תשואה %", EV: "תוחלת רווח $", POP: "Prob. of Profit", iv: "IV · זול→יקר" };
   const onModel = (setter) => (e) => { setter(+e.target.value); setTouched(true); };
 
   const chips = [
@@ -464,6 +553,122 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ===== Options ranking module ===== */}
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>CALL OPTION RANKER · EXPECTED VALUE · HELD TO EXPIRY</div>
+          <div className="card-title" style={{ marginBottom: 6 }}>דירוג אופציות CALL לפי תוחלת רווח</div>
+          <div style={{ color: C.sub, fontSize: 14, lineHeight: 1.7, marginBottom: 16, fontWeight: 500, maxWidth: 760 }}>
+            הזן עבור כל סטרייק את הפרמיה האמיתית מהברוקר. הכלי מחשב תוחלת רווח תחת ה-<b style={{ color: C.ink }}>μ</b> וה-<b style={{ color: C.rn }}>σ</b> שמוגדרים למעלה,
+            מחלץ את ה-<b style={{ color: C.iv }}>IV</b> הגלום בכל פרמיה, ומדרג מהכדאי ביותר לפחות. ההנחה: אחזקה עד פקיעה (finish), לא נגיעה (touch).
+          </div>
+
+          {/* tenor + thesis-implied drift */}
+          <div className="opt-grid">
+            <div className="field"><label>ימים לפקיעה</label><input type="number" value={optDays} onChange={(e) => setOptDays(+e.target.value)} /></div>
+            <div className="field"><label>מחיר יעד (לחישוב μ)</label><input type="number" value={targetPx} onChange={(e) => setTargetPx(+e.target.value)} /></div>
+            <div className="field">
+              <label style={{ color: C.accent }}>μ שהתזה מגלמת · שנתי</label>
+              <button className="implied-btn" onClick={() => { setMuHistPct(+impliedMuPct.toFixed(1)); setTouched(true); }}>
+                {impliedMuPct >= 0 ? "+" : ""}{impliedMuPct.toFixed(1)}% &nbsp;← החל על μ
+              </button>
+            </div>
+          </div>
+
+          <div className="warnbox">
+            ⚠ <b>מלכודת ה-μ:</b> "החל" מזין דריפט שהמסלול הממוצע שלו נוחת בדיוק על היעד — כלומר הזנת המסקנה לתוך המודל.
+            המספרים שיתקבלו מותנים בכך שהתזה נכונה, ואינם אישוש בלתי-תלוי שלה. כעת μ = <b>{muHistPct}%</b> · σ = <b>{sigmaPct}%</b> · r = <b>{rPct}%</b>.
+          </div>
+
+          {/* editable option rows */}
+          <div className="tbl-scroll" style={{ marginBottom: 12 }}>
+            <table className="opt-tbl">
+              <thead>
+                <tr><th>Strike ($)</th><th>פרמיה ($ למניה)</th><th style={{ width: 44 }}></th></tr>
+              </thead>
+              <tbody>
+                {options.map((o) => (
+                  <tr key={o.id}>
+                    <td><input type="number" value={o.K} onChange={(e) => updateOpt(o.id, "K", e.target.value)} /></td>
+                    <td><input type="number" step="0.05" value={o.premium} onChange={(e) => updateOpt(o.id, "premium", e.target.value)} /></td>
+                    <td style={{ textAlign: "center" }}><button className="delbtn" title="מחק" onClick={() => removeOpt(o.id)}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 18 }}>
+            <button className="minibtn" onClick={addOpt}>+ הוסף סטרייק</button>
+            <span style={{ fontSize: 13, color: C.sub, fontWeight: 500 }}>הפרמיות כאן הן דוגמה — החלף בציטוט אמיתי מהברוקר.</span>
+          </div>
+
+          {/* rank metric selector */}
+          <div style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
+            <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>דרג לפי:</span>
+            <div className="periods">
+              {Object.keys(RANK_LABELS).map((k) => (
+                <button key={k} className={"pbtn" + (rankBy === k ? " on" : "")} onClick={() => setRankBy(k)}>{RANK_LABELS[k]}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ranked results + EV chart */}
+        <div className="grid-lower">
+          <div className="card">
+            <div className="card-title">דירוג כדאיות · תחת μ הנוכחי</div>
+            <div className="tbl-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Strike</th>
+                    <th>פרמיה</th>
+                    <th style={{ color: C.iv }}>IV</th>
+                    <th>Breakeven</th>
+                    <th>POP</th>
+                    <th>E[payoff]</th>
+                    <th style={{ color: C.accent }}>EV $</th>
+                    <th style={{ color: C.accent }}>EV %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedOptions.map((row) => (
+                    <tr key={row.id} className={row.rank === 1 ? "rank-row1" : undefined}>
+                      <td style={{ color: row.rank === 1 ? C.accent : C.sub, fontWeight: 700 }}>{row.rank}</td>
+                      <td style={{ color: C.ink, fontWeight: 600 }}>{row.K}</td>
+                      <td style={{ color: C.sub }}>${row.premium.toFixed(2)}</td>
+                      <td style={{ color: C.iv, fontWeight: 600 }}>{row.iv == null ? "—" : row.iv.toFixed(1) + "%"}</td>
+                      <td style={{ color: C.sub }}>${row.BE.toFixed(1)}</td>
+                      <td>{row.POP.toFixed(1)}%</td>
+                      <td style={{ color: C.sub }}>${row.expPayoff.toFixed(2)}</td>
+                      <td style={{ color: pctColor(row.EV), fontWeight: 600 }}>{row.EV >= 0 ? "+" : ""}${row.EV.toFixed(2)}</td>
+                      <td style={{ color: pctColor(row.EVpct), fontWeight: 700 }}>{row.EVpct >= 0 ? "+" : ""}{row.EVpct.toFixed(0)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title">תוחלת תשואה לפי סטרייק</div>
+            {rankedOptions.length > 0 ? (
+              <ResponsiveContainer width="100%" height={284}>
+                <BarChart data={rankedOptions.map((o) => ({ name: String(o.K), "EV %": +o.EVpct.toFixed(0) }))} margin={{ top: 8, right: 14, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="name" stroke={C.sub} tick={{ fontSize: 12 }} />
+                  <YAxis stroke={C.sub} tick={{ fontSize: 11 }} width={36} />
+                  <ReferenceLine y={0} stroke={C.sub} />
+                  <Tooltip contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, color: C.ink, fontSize: 12 }} formatter={(v) => [`${v}%`, "תוחלת תשואה"]} labelFormatter={(l) => `Strike ${l}`} />
+                  <Bar dataKey="EV %" radius={[4, 4, 0, 0]}>
+                    {rankedOptions.map((o) => <Cell key={o.id} fill={o.EVpct >= 0 ? C.up : C.down} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div style={{ height: 284, display: "flex", alignItems: "center", justifyContent: "center", color: C.sub, fontSize: 13 }}>הזן סטרייק ופרמיה…</div>}
+          </div>
+        </div>
 
         {/* Notes */}
         <div className="card notes">
