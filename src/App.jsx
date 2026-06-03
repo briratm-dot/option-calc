@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar, ReferenceLine } from "recharts";
 
 // ===== Fallback snapshot (ADBE) shown before the first live fetch =====
 const FALLBACK = {
@@ -32,6 +32,38 @@ function finishProb(b, nu, sigma, t) {
   if (t <= 0 || sigma <= 0) return 0;
   const s = sigma * Math.sqrt(t);
   return Math.min(1, Math.max(0, Phi((-b + nu * t) / s)));
+}
+
+// ---- Option pricing & decision-support math ----
+function bsCall(S, K, r, sig, T) {
+  if (T <= 0 || sig <= 0) return Math.max(S - K, 0);
+  const s = sig * Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * sig * sig) * T) / s, d2 = d1 - s;
+  return S * Phi(d1) - K * Math.exp(-r * T) * Phi(d2);
+}
+function bsPut(S, K, r, sig, T) {
+  if (T <= 0 || sig <= 0) return Math.max(K - S, 0);
+  const s = sig * Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * sig * sig) * T) / s, d2 = d1 - s;
+  return K * Math.exp(-r * T) * Phi(-d2) - S * Phi(-d1);
+}
+// P(S_T > L) under GBM with arithmetic drift `drift`
+function probAbove(S, L, drift, sig, T) {
+  if (T <= 0 || sig <= 0) return S > L ? 1 : 0;
+  return Phi((Math.log(S / L) + (drift - 0.5 * sig * sig) * T) / (sig * Math.sqrt(T)));
+}
+// Undiscounted expected payoff under arithmetic drift `drift`
+function expCallPayoff(S, K, drift, sig, T) {
+  if (T <= 0 || sig <= 0) return Math.max(S - K, 0);
+  const s = sig * Math.sqrt(T);
+  const D1 = (Math.log(S / K) + (drift + 0.5 * sig * sig) * T) / s, D2 = D1 - s;
+  return S * Math.exp(drift * T) * Phi(D1) - K * Phi(D2);
+}
+function expPutPayoff(S, K, drift, sig, T) {
+  if (T <= 0 || sig <= 0) return Math.max(K - S, 0);
+  const s = sig * Math.sqrt(T);
+  const D1 = (Math.log(S / K) + (drift + 0.5 * sig * sig) * T) / s, D2 = D1 - s;
+  return K * Phi(-D2) - S * Math.exp(drift * T) * Phi(-D1);
 }
 
 const HORIZONS = [
@@ -156,6 +188,24 @@ tbody td:first-child{font-family:'Assistant',sans-serif;color:var(--ink);font-we
 .spin{width:14px;height:14px;border:2px solid #06121c;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .num,.px,.chip .v,.stat .row b,.dstat .val,.movebar b.n{direction:ltr;unicode-bidi:isolate}
+.seg{display:inline-flex;gap:3px;background:rgba(255,255,255,.03);padding:3px;border-radius:9px;border:1px solid var(--border)}
+.seg button{border:none;background:transparent;color:var(--ink);font-family:inherit;font-weight:700;font-size:15px;padding:9px 18px;border-radius:7px;cursor:pointer;transition:all .15s}
+.seg button.on{background:rgba(34,211,238,.16);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(34,211,238,.45)}
+.opt-inputs{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:15px}
+.opt-inputs .field{min-width:118px}
+.opt-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}
+@media(max-width:1000px){.opt-grid{grid-template-columns:1fr}}
+.verdict{display:flex;align-items:center;gap:12px;border-radius:11px;padding:14px 16px;margin-bottom:15px;font-weight:700;font-size:18px}
+.verdict .dot{width:12px;height:12px;border-radius:50%;flex:none}
+.ometrics{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:4px}
+.ometric{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+.ometric .l{font-size:12px;color:var(--ink);font-weight:600;margin-bottom:6px}
+.ometric .v{font-family:var(--mono);font-size:18px;font-weight:600;direction:ltr;unicode-bidi:isolate}
+.flags{list-style:none;padding:0;margin:14px 0 0}
+.flags li{position:relative;padding:7px 19px 7px 0;font-size:14px;color:var(--sub);font-weight:500;line-height:1.65}
+.flags li::before{content:'▸';position:absolute;right:0;top:7px;color:var(--accent)}
+.flags li b{color:var(--ink);font-weight:700}
+.opt-hint{color:var(--sub);font-size:15px;font-weight:500;padding:8px 0}
 `;
 
 export default function App() {
@@ -172,6 +222,12 @@ export default function App() {
   const [rPct, setRPct] = useState(4.3);
   const [ivStr, setIvStr] = useState("");
   const [touched, setTouched] = useState(false);
+
+  // option decision-support inputs
+  const [optType, setOptType] = useState("call");
+  const [strikeStr, setStrikeStr] = useState("");
+  const [premStr, setPremStr] = useState("");
+  const [expStr, setExpStr] = useState("3"); // months
 
   const fetchSymbol = useCallback(async (sym) => {
     const s = (sym || "").trim().toUpperCase();
@@ -268,6 +324,42 @@ export default function App() {
     });
     return { data, m, sd, skew, kurt, worst: Math.min(...lr), best: Math.max(...lr), n, annSd: sd * Math.sqrt(252) };
   }, [snap]);
+
+  // ----- Option viability (decision support) -----
+  const opt = useMemo(() => {
+    const K = parseFloat(strikeStr), prem = parseFloat(premStr), Tm = parseFloat(expStr);
+    if (!(K > 0 && prem > 0 && Tm > 0 && S0 > 0)) return null;
+    const T = Tm / 12;
+    const isCall = optType === "call";
+    const physSig = sigma;                 // HV (your σ input)
+    const physDrift = muHist;              // arithmetic physical drift
+    const mktSig = hasIV ? ivSigma : sigma; // implied σ if provided, else HV
+    const be = isCall ? K + prem : K - prem;
+    const fair = isCall ? bsCall(S0, K, r, mktSig, T) : bsPut(S0, K, r, mktSig, T);
+    const pProfitPhys = (isCall ? probAbove(S0, be, physDrift, physSig, T) : 1 - probAbove(S0, be, physDrift, physSig, T)) * 100;
+    const pProfitImpl = (isCall ? probAbove(S0, be, r, mktSig, T) : 1 - probAbove(S0, be, r, mktSig, T)) * 100;
+    const pITM = (isCall ? probAbove(S0, K, physDrift, physSig, T) : 1 - probAbove(S0, K, physDrift, physSig, T)) * 100;
+    const edge = pProfitPhys - pProfitImpl;
+    const expPay = isCall ? expCallPayoff(S0, K, physDrift, physSig, T) : expPutPayoff(S0, K, physDrift, physSig, T);
+    const expPnL = expPay - prem;
+    const expRet = (expPnL / prem) * 100;
+    const moveBE = (be / S0 - 1) * 100;
+    const cheapRich = prem / fair - 1; // >0 premium above model fair value
+    const lo = S0 * 0.6, hi = S0 * 1.45, steps = 64, pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const Sx = lo + (hi - lo) * i / steps;
+      const pay = isCall ? Math.max(Sx - K, 0) : Math.max(K - Sx, 0);
+      pts.push({ s: +Sx.toFixed(2), pnl: +(pay - prem).toFixed(2) });
+    }
+    return { K, prem, T, Tm, isCall, be, fair, pProfitPhys, pProfitImpl, pITM, edge, expPnL, expRet, moveBE, cheapRich, pts };
+  }, [strikeStr, premStr, expStr, optType, S0, sigma, muHist, r, hasIV, ivSigma]);
+
+  const verdict = useMemo(() => {
+    if (!opt) return null;
+    if (opt.edge > 5 && opt.expRet > 0) return { tone: C.up, label: "edge חיובי לפי ההנחות שלך" };
+    if (opt.edge < -5 || opt.expRet < 0) return { tone: C.down, label: "אין edge חיובי לפי הנתונים" };
+    return { tone: C.ph, label: "edge גבולי — בדוק רגישות" };
+  }, [opt]);
 
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const pctColor = (v) => v == null ? C.sub : v >= 0 ? C.up : C.down;
@@ -373,6 +465,82 @@ export default function App() {
               מאותחל ב-σ/μ של שנה.{touched && <span style={{ color: C.ph }}> ערכים נערכו ידנית.</span>}
             </div>
           </div>
+        </div>
+
+        {/* Decision support: option viability */}
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title">תומך החלטה · כדאיות אופציה</div>
+          <div className="opt-inputs">
+            <div className="seg">
+              <button className={optType === "call" ? "on" : ""} onClick={() => setOptType("call")}>Call</button>
+              <button className={optType === "put" ? "on" : ""} onClick={() => setOptType("put")}>Put</button>
+            </div>
+            <div className="field"><label>Strike ($)</label><input type="number" value={strikeStr} placeholder="יעד מימוש" onChange={(e) => setStrikeStr(e.target.value)} /></div>
+            <div className="field"><label>פרמיה ($)</label><input type="number" value={premStr} placeholder="עלות למניה" onChange={(e) => setPremStr(e.target.value)} /></div>
+            <div className="field"><label>פקיעה (חודשים)</label><input type="number" value={expStr} onChange={(e) => setExpStr(e.target.value)} /></div>
+          </div>
+
+          {!opt ? (
+            <div className="opt-hint">מלא Strike, פרמיה ופקיעה כדי לקבל הערכת כדאיות מבוססת-מודל. {hasIV ? "(שווי הוגן וההסתברות המגולמת מחושבים לפי ה-IV שהזנת.)" : "(ללא IV — החישוב מבוסס σ היסטורי; הזן IV לקבלת ההסתברות המגולמת בפרמיה.)"}</div>
+          ) : (
+            <>
+              <div className="verdict" style={{ background: `${verdict.tone}1a`, border: `1px solid ${verdict.tone}66`, color: verdict.tone }}>
+                <span className="dot" style={{ background: verdict.tone }} />
+                {verdict.label}
+              </div>
+
+              <div className="opt-grid">
+                {/* Payoff diagram */}
+                <div>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={opt.pts} margin={{ top: 8, right: 14, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
+                      <XAxis dataKey="s" stroke={C.sub} tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Math.round(v)}`} minTickGap={32} />
+                      <YAxis stroke={C.sub} tick={{ fontSize: 11 }} width={40} tickFormatter={(v) => `${v}`} />
+                      <Tooltip contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, color: C.ink, fontSize: 13 }}
+                        formatter={(v) => [`$${v}`, "רווח/הפסד"]} labelFormatter={(l) => `מחיר $${l}`} />
+                      <ReferenceLine y={0} stroke={C.sub} strokeDasharray="4 4" />
+                      <ReferenceLine x={opt.pts.reduce((a, p) => Math.abs(p.s - S0) < Math.abs(a - S0) ? p.s : a, opt.pts[0].s)} stroke={C.accent} strokeDasharray="3 3" label={{ value: "נוכחי", fill: C.accent, fontSize: 11, position: "top" }} />
+                      <ReferenceLine x={opt.pts.reduce((a, p) => Math.abs(p.s - opt.be) < Math.abs(a - opt.be) ? p.s : a, opt.pts[0].s)} stroke={C.ph} strokeDasharray="3 3" label={{ value: "BE", fill: C.ph, fontSize: 11, position: "top" }} />
+                      <Line type="monotone" dataKey="pnl" stroke={verdict.tone} strokeWidth={2.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Metrics */}
+                <div>
+                  <div className="ometrics">
+                    <div className="ometric"><div className="l">break-even</div><div className="v">${opt.be.toFixed(2)}</div></div>
+                    <div className="ometric"><div className="l">תנועה ל-BE</div><div className="v" style={{ color: opt.moveBE >= 0 ? C.up : C.down }}>{opt.moveBE >= 0 ? "+" : ""}{opt.moveBE.toFixed(1)}%</div></div>
+                    <div className="ometric"><div className="l">P(רווח) · פיזי</div><div className="v" style={{ color: C.ph }}>{opt.pProfitPhys.toFixed(1)}%</div></div>
+                    <div className="ometric"><div className="l">P(רווח) · מגולם</div><div className="v" style={{ color: C.iv }}>{opt.pProfitImpl.toFixed(1)}%</div></div>
+                    <div className="ometric"><div className="l">Edge</div><div className="v" style={{ color: opt.edge >= 0 ? C.up : C.down }}>{opt.edge >= 0 ? "+" : ""}{opt.edge.toFixed(1)} נק׳</div></div>
+                    <div className="ometric"><div className="l">תוחלת תשואה</div><div className="v" style={{ color: opt.expRet >= 0 ? C.up : C.down }}>{opt.expRet >= 0 ? "+" : ""}{opt.expRet.toFixed(0)}%</div></div>
+                    <div className="ometric"><div className="l">שווי הוגן (BS)</div><div className="v">${opt.fair.toFixed(2)}</div></div>
+                    <div className="ometric"><div className="l">הפסד מקסימלי</div><div className="v" style={{ color: C.down }}>-100%</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <ul className="flags">
+                <li><b>סיכון מוחלט:</b> אם האופציה פוקעת מחוץ לכסף — הפסד של 100% מהפרמיה (${opt.prem.toFixed(2)} למניה). מינוף גבוה לשני הכיוונים.</li>
+                {opt.edge > 5
+                  ? <li><b>edge חיובי (+{opt.edge.toFixed(1)} נק׳):</b> המודל הפיזי שלך נותן P(רווח) גבוה מזה שהפרמיה מגלמת. <b>זהירות:</b> התוצאה רגישה מאוד ל-μ — μ אופטימי מדי יוצר edge מדומה (overfitting).</li>
+                  : opt.edge < -5
+                    ? <li><b>אין edge:</b> הפרמיה מגלמת P(רווח) של {opt.pProfitImpl.toFixed(0)}%, גבוה מ-{opt.pProfitPhys.toFixed(0)}% שהמודל הפיזי נותן — אתה משלם יותר ממה שהתזה שלך מצדיקה.</li>
+                    : <li><b>edge גבולי:</b> הפער בין הפיזי למגולם קטן ({opt.edge >= 0 ? "+" : ""}{opt.edge.toFixed(1)} נק׳) — בתוך תחום אי-הוודאות של ההנחות.</li>}
+                {hasIV
+                  ? (ivNum - sigmaPct > 3
+                    ? <li><b>IV &gt; HV ב-{(ivNum - sigmaPct).toFixed(1)} נק׳:</b> אתה משלם תנודתיות יקרה ביחס למה שהמניה מימשה — פרמיה "מנופחת".</li>
+                    : ivNum - sigmaPct < -3
+                      ? <li><b>IV &lt; HV:</b> התנודתיות הגלומה נמוכה מההיסטורית — האופציה זולה יחסית לתנודתיות שמומשה.</li>
+                      : <li>IV ו-HV קרובים — הפרמיה מתומחרת בקירוב לפי התנודתיות ההיסטורית.</li>)
+                  : <li>לא הוזן IV — השווי ההוגן וה-P(מגולם) חושבו לפי σ היסטורי. הזן את ה-IV מהברוקר לקבלת ההשוואה המדויקת מול הפרמיה בפועל.</li>}
+                {opt.Tm <= 1 && <li><b>theta:</b> פקיעה קצרה ({opt.Tm} ח׳) — שחיקת ערך זמן מהירה. שקול tenor ארוך יותר, או אחזקה ליעד touch מוקדם במקום עד פקיעה.</li>}
+                <li style={{ color: C.sub, opacity: 0.85 }}>ניתוח כמותי המותנה כולו בהנחות שהזנת — לא ייעוץ השקעות. ההחלטה בידך.</li>
+              </ul>
+            </>
+          )}
         </div>
 
         {/* Lower grid: table + curve */}
