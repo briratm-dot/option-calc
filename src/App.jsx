@@ -345,20 +345,22 @@ export default function App() {
     const expRet = (expPnL / prem) * 100;
     const moveBE = (be / S0 - 1) * 100;
     const cheapRich = prem / fair - 1; // >0 premium above model fair value
+    const intrinsic = isCall ? Math.max(S0 - K, 0) : Math.max(K - S0, 0);
+    const intrinsicShare = fair > 0 ? intrinsic / fair : 0;
     const lo = S0 * 0.6, hi = S0 * 1.45, steps = 64, pts = [];
     for (let i = 0; i <= steps; i++) {
       const Sx = lo + (hi - lo) * i / steps;
       const pay = isCall ? Math.max(Sx - K, 0) : Math.max(K - Sx, 0);
       pts.push({ s: +Sx.toFixed(2), pnl: +(pay - prem).toFixed(2) });
     }
-    return { K, prem, T, Tm, isCall, be, fair, pProfitPhys, pProfitImpl, pITM, edge, expPnL, expRet, moveBE, cheapRich, pts };
+    return { K, prem, T, Tm, isCall, be, fair, pProfitPhys, pProfitImpl, pITM, edge, expPnL, expRet, moveBE, cheapRich, intrinsicShare, pts };
   }, [strikeStr, premStr, expStr, optType, S0, sigma, muHist, r, hasIV, ivSigma]);
 
   const verdict = useMemo(() => {
     if (!opt) return null;
-    if (opt.edge > 5 && opt.expRet > 0) return { tone: C.up, label: "edge חיובי לפי ההנחות שלך" };
-    if (opt.edge < -5 || opt.expRet < 0) return { tone: C.down, label: "אין edge חיובי לפי הנתונים" };
-    return { tone: C.ph, label: "edge גבולי — בדוק רגישות" };
+    if (opt.expRet >= 10) return { tone: C.up, label: "תוחלת תשואה חיובית לפי ההנחות שלך" };
+    if (opt.expRet < 0) return { tone: C.down, label: "תוחלת תשואה שלילית לפי ההנחות שלך" };
+    return { tone: C.ph, label: "גבולי · תוחלת קרובה לאפס" };
   }, [opt]);
 
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -481,7 +483,7 @@ export default function App() {
           </div>
 
           {!opt ? (
-            <div className="opt-hint">מלא Strike, פרמיה ופקיעה כדי לקבל הערכת כדאיות מבוססת-מודל. {hasIV ? "(שווי הוגן וההסתברות המגולמת מחושבים לפי ה-IV שהזנת.)" : "(ללא IV — החישוב מבוסס σ היסטורי; הזן IV לקבלת ההסתברות המגולמת בפרמיה.)"}</div>
+            <div className="opt-hint">מלא Strike, פרמיה ופקיעה כדי לקבל הערכת כדאיות. השווי לפי המודל מחושב מ-{hasIV ? "ה-IV שהזנת" : "σ היסטורי — הזן IV מהברוקר לדיוק מול הפרמיה בפועל"}.</div>
           ) : (
             <>
               <div className="verdict" style={{ background: `${verdict.tone}1a`, border: `1px solid ${verdict.tone}66`, color: verdict.tone }}>
@@ -511,32 +513,38 @@ export default function App() {
                 <div>
                   <div className="ometrics">
                     <div className="ometric"><div className="l">break-even</div><div className="v">${opt.be.toFixed(2)}</div></div>
-                    <div className="ometric"><div className="l">תנועה ל-BE</div><div className="v" style={{ color: opt.moveBE >= 0 ? C.up : C.down }}>{opt.moveBE >= 0 ? "+" : ""}{opt.moveBE.toFixed(1)}%</div></div>
-                    <div className="ometric"><div className="l">P(רווח) · פיזי</div><div className="v" style={{ color: C.ph }}>{opt.pProfitPhys.toFixed(1)}%</div></div>
-                    <div className="ometric"><div className="l">P(רווח) · מגולם</div><div className="v" style={{ color: C.iv }}>{opt.pProfitImpl.toFixed(1)}%</div></div>
-                    <div className="ometric"><div className="l">Edge</div><div className="v" style={{ color: opt.edge >= 0 ? C.up : C.down }}>{opt.edge >= 0 ? "+" : ""}{opt.edge.toFixed(1)} נק׳</div></div>
+                    <div className="ometric"><div className="l">תנועה ל-break-even</div><div className="v" style={{ color: opt.moveBE >= 0 ? C.up : C.down }}>{opt.moveBE >= 0 ? "+" : ""}{opt.moveBE.toFixed(1)}%</div></div>
+                    <div className="ometric"><div className="l">P(רווח) בפקיעה</div><div className="v" style={{ color: C.ph }}>{opt.pProfitPhys.toFixed(0)}%</div></div>
                     <div className="ometric"><div className="l">תוחלת תשואה</div><div className="v" style={{ color: opt.expRet >= 0 ? C.up : C.down }}>{opt.expRet >= 0 ? "+" : ""}{opt.expRet.toFixed(0)}%</div></div>
-                    <div className="ometric"><div className="l">שווי הוגן (BS)</div><div className="v">${opt.fair.toFixed(2)}</div></div>
-                    <div className="ometric"><div className="l">הפסד מקסימלי</div><div className="v" style={{ color: C.down }}>-100%</div></div>
+                    <div className="ometric"><div className="l">שווי לפי מודל</div><div className="v">${opt.fair.toFixed(2)}</div></div>
+                    <div className="ometric"><div className="l">מחיר מול שווי</div><div className="v" style={{ color: opt.cheapRich <= 0 ? C.up : C.down }}>{opt.cheapRich >= 0 ? "+" : ""}{(opt.cheapRich * 100).toFixed(0)}%</div></div>
+                  </div>
+                  <div style={{ marginTop: 11, fontSize: 13, color: C.sub, lineHeight: 1.7, fontWeight: 500 }}>
+                    <b style={{ color: C.ink }}>P(רווח)</b> — הסיכוי שבפקיעה המניה תהיה מעל ה-break-even, לפי ה-μ וה-σ שהזנת.<br />
+                    <b style={{ color: C.ink }}>תוחלת תשואה</b> — הרווח/הפסד הצפוי כאחוז מהפרמיה, ממוצע משוקלל על כל התרחישים.<br />
+                    <b style={{ color: C.ink }}>מחיר מול שווי</b> — פער הפרמיה מהשווי לפי Black-Scholes; שלילי = משלם <b style={{ color: C.up }}>פחות</b> מהשווי (זול).
                   </div>
                 </div>
               </div>
 
               <ul className="flags">
-                <li><b>סיכון מוחלט:</b> אם האופציה פוקעת מחוץ לכסף — הפסד של 100% מהפרמיה (${opt.prem.toFixed(2)} למניה). מינוף גבוה לשני הכיוונים.</li>
-                {opt.edge > 5
-                  ? <li><b>edge חיובי (+{opt.edge.toFixed(1)} נק׳):</b> המודל הפיזי שלך נותן P(רווח) גבוה מזה שהפרמיה מגלמת. <b>זהירות:</b> התוצאה רגישה מאוד ל-μ — μ אופטימי מדי יוצר edge מדומה (overfitting).</li>
-                  : opt.edge < -5
-                    ? <li><b>אין edge:</b> הפרמיה מגלמת P(רווח) של {opt.pProfitImpl.toFixed(0)}%, גבוה מ-{opt.pProfitPhys.toFixed(0)}% שהמודל הפיזי נותן — אתה משלם יותר ממה שהתזה שלך מצדיקה.</li>
-                    : <li><b>edge גבולי:</b> הפער בין הפיזי למגולם קטן ({opt.edge >= 0 ? "+" : ""}{opt.edge.toFixed(1)} נק׳) — בתוך תחום אי-הוודאות של ההנחות.</li>}
-                {hasIV
-                  ? (ivNum - sigmaPct > 3
-                    ? <li><b>IV &gt; HV ב-{(ivNum - sigmaPct).toFixed(1)} נק׳:</b> אתה משלם תנודתיות יקרה ביחס למה שהמניה מימשה — פרמיה "מנופחת".</li>
-                    : ivNum - sigmaPct < -3
-                      ? <li><b>IV &lt; HV:</b> התנודתיות הגלומה נמוכה מההיסטורית — האופציה זולה יחסית לתנודתיות שמומשה.</li>
-                      : <li>IV ו-HV קרובים — הפרמיה מתומחרת בקירוב לפי התנודתיות ההיסטורית.</li>)
-                  : <li>לא הוזן IV — השווי ההוגן וה-P(מגולם) חושבו לפי σ היסטורי. הזן את ה-IV מהברוקר לקבלת ההשוואה המדויקת מול הפרמיה בפועל.</li>}
-                {opt.Tm <= 1 && <li><b>theta:</b> פקיעה קצרה ({opt.Tm} ח׳) — שחיקת ערך זמן מהירה. שקול tenor ארוך יותר, או אחזקה ליעד touch מוקדם במקום עד פקיעה.</li>}
+                <li><b>סיכון מוחלט:</b> בפקיעה מחוץ לכסף — הפסד 100% מהפרמיה (${opt.prem.toFixed(2)} למניה). מינוף חד לשני הכיוונים.</li>
+                {opt.cheapRich < -0.10
+                  ? <li><b>נראה זול:</b> הפרמיה נמוכה ב-{Math.abs(opt.cheapRich * 100).toFixed(0)}% מהשווי לפי המודל ({hasIV ? "IV" : "σ היסטורי"}) — תמחור אטרקטיבי לכאורה.</li>
+                  : opt.cheapRich > 0.10
+                    ? <li><b>נראה יקר:</b> הפרמיה גבוהה ב-{(opt.cheapRich * 100).toFixed(0)}% מהשווי לפי המודל — אתה משלם פרמיית זמן/תנודתיות עודפת.</li>
+                    : <li>הפרמיה קרובה לשווי לפי המודל — תמחור הוגן בקירוב.</li>}
+                {opt.expRet > 0
+                  ? <li><b>תוחלת חיובית — אך רגישה ל-μ:</b> התוצאה מונעת מהנחת ה-μ ({muHistPct}% שנתי). μ אופטימי מדי "מסכים עם עצמו" ומנפח את התוחלת (overfitting). הזן μ שמרני יותר ובדוק אם נשארת חיובית.</li>
+                  : <li><b>תוחלת שלילית:</b> תחת μ של {muHistPct}% המהלך אינו צפוי, בממוצע, להחזיר את הפרמיה.</li>}
+                {opt.intrinsicShare > 0.85
+                  ? <li><b>עמוק בתוך הכסף:</b> כ-{(opt.intrinsicShare * 100).toFixed(0)}% מהשווי הוא ערך פנימי — לכן σ ו-IV כמעט לא משפיעים, והאופציה מתנהגת בקירוב כמו אחזקת המניה במינוף.</li>
+                  : hasIV
+                    ? (ivNum - sigmaPct > 3 ? <li><b>IV &gt; HV ב-{(ivNum - sigmaPct).toFixed(1)} נק׳:</b> תנודתיות יקרה — הפרמיה "מנופחת" מול מה שהמניה מימשה.</li>
+                      : ivNum - sigmaPct < -3 ? <li><b>IV &lt; HV:</b> התנודתיות הגלומה זולה יחסית למומשת.</li>
+                        : <li>IV ו-HV קרובים — תמחור התנודתיות סביר.</li>)
+                    : <li><b>לא הוזן IV:</b> השווי לפי המודל מחושב מ-σ היסטורי. הזן IV מהברוקר לדיוק מלא מול הפרמיה בפועל.</li>}
+                {opt.Tm <= 1 && <li><b>theta:</b> פקיעה קצרה ({opt.Tm} ח׳) — שחיקת ערך זמן מהירה.</li>}
                 <li style={{ color: C.sub, opacity: 0.85 }}>ניתוח כמותי המותנה כולו בהנחות שהזנת — לא ייעוץ השקעות. ההחלטה בידך.</li>
               </ul>
             </>
