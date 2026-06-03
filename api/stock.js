@@ -88,9 +88,11 @@ export default async function handler(req, res) {
 
   const histUrl = `${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${iso(from)}&to=${iso(to)}&apikey=${apikey}`;
   const quoteUrl = `${FMP_BASE}/quote?symbol=${encodeURIComponent(symbol)}&apikey=${apikey}`;
+  // 10-Year Treasury yield (risk-free r), via Treasury Rates endpoint (returns yields in %).
+  const rateUrl = `${FMP_BASE}/treasury-rates?apikey=${apikey}`;
 
   try {
-    const [histR, quoteR] = await Promise.all([fetch(histUrl), fetch(quoteUrl)]);
+    const [histR, quoteR, rateR] = await Promise.all([fetch(histUrl), fetch(quoteUrl), fetch(rateUrl)]);
 
     if (!histR.ok) return res.status(502).json({ error: `FMP history error (${histR.status}).` });
     const histJson = await histR.json();
@@ -110,6 +112,16 @@ export default async function handler(req, res) {
     const quoteJson = await quoteR.json().catch(() => []);
     const q = Array.isArray(quoteJson) && quoteJson[0] ? quoteJson[0] : {};
     const name = q.name || symbol;
+
+    // latest 10-year treasury yield (%) as risk-free rate
+    let rate = null, rateDate = null;
+    try {
+      const rj = await rateR.json();
+      if (Array.isArray(rj) && rj.length) {
+        const latest = rj.reduce((a, b) => (a.date > b.date ? a : b));
+        if (typeof latest.year10 === "number") { rate = latest.year10; rateDate = latest.date; }
+      }
+    } catch { /* leave rate null; frontend keeps its fallback */ }
 
     const logret = logReturns(closes);
     const vol6 = annualVol(logret, 126) * 100;
@@ -143,6 +155,8 @@ export default async function handler(req, res) {
       vol12: round1(vol12),
       mu6: round1(mu6),
       mu12: round1(mu12),
+      rate: round1(rate),
+      rateDate,
       series,
     });
   } catch (e) {
