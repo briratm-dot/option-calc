@@ -61,7 +61,7 @@ const C = {
 };
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 *{box-sizing:border-box}
 :root{
   --ink:#e6edf3; --sub:#c2cdd9;
@@ -72,7 +72,7 @@ const CSS = `
   --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
 .app{min-height:100vh;color:var(--ink);padding:24px 22px 44px;font-size:16px;
-  font-family:'IBM Plex Sans Hebrew',system-ui,sans-serif;
+  font-family:'Assistant',system-ui,sans-serif;
   background:
     radial-gradient(1100px 520px at 88% -8%,rgba(139,92,246,.12),transparent 60%),
     radial-gradient(900px 500px at 4% 112%,rgba(34,211,238,.09),transparent 60%),
@@ -142,9 +142,9 @@ const CSS = `
 table{width:100%;border-collapse:collapse;font-size:15px;min-width:480px}
 thead th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);text-align:right;
   padding:9px 9px;border-bottom:1px solid var(--border);font-weight:700;white-space:nowrap}
-tbody td{padding:10px 9px;border-bottom:1px solid rgba(255,255,255,.04);font-family:var(--mono);white-space:nowrap;font-weight:500}
+tbody td{padding:10px 9px;border-bottom:1px solid rgba(255,255,255,.04);font-family:var(--mono);white-space:nowrap;font-weight:500;direction:ltr;unicode-bidi:isolate}
 tbody tr:hover{background:rgba(255,255,255,.03)}
-tbody td:first-child{font-family:'IBM Plex Sans Hebrew',sans-serif;color:var(--ink);font-weight:600}
+tbody td:first-child{font-family:'Assistant',sans-serif;color:var(--ink);font-weight:600;direction:rtl}
 
 .dstat{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:15px}
 .dstat:last-child{border-bottom:none}
@@ -155,6 +155,7 @@ tbody td:first-child{font-family:'IBM Plex Sans Hebrew',sans-serif;color:var(--i
 .notes b,.notes strong{color:var(--ink);font-weight:700}
 .spin{width:14px;height:14px;border:2px solid #06121c;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
+.num,.px,.chip .v,.stat .row b,.dstat .val,.movebar b.n{direction:ltr;unicode-bidi:isolate}
 `;
 
 export default function App() {
@@ -354,8 +355,8 @@ export default function App() {
               <div className="field"><label style={{ color: C.iv }}>IV גלום (%) · רשות</label><input type="number" value={ivStr} placeholder="מהברוקר" style={hasIV ? { borderColor: C.iv } : undefined} onChange={(e) => { setIvStr(e.target.value); setTouched(true); }} /></div>
             </div>
             <div className="movebar">
-              <span>תנועה: <b style={{ color: isUp ? C.up : C.down }}>{((ST / S0 - 1) * 100).toFixed(1)}%</b></span>
-              <span>b = <b style={{ color: C.ink }}>{b.toFixed(4)}</b></span>
+              <span>תנועה: <b className="n" style={{ color: isUp ? C.up : C.down }}>{((ST / S0 - 1) * 100).toFixed(1)}%</b></span>
+              <span>b = <b className="n" style={{ color: C.ink }}>{b.toFixed(4)}</b></span>
               <span>כיוון: <b style={{ color: isUp ? C.up : C.down }}>{isUp ? "עלייה ↑" : "ירידה ↓"}</b></span>
             </div>
             <div className="stats">
