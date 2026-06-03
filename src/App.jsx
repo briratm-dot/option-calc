@@ -1,14 +1,3 @@
-מעולה. מכיוון שסיפקת את קובץ ה-`App.jsx` המלא, התאמתי את מודול האופציות כך שישתלב באופן טבעי ואורגני לחלוטין עם העיצוב הקיים של המערכת שלך (שימוש באותם Class names, משתני צבע מבוססי CSS מותאמים אישית כמו `C.panel` או `C.accent`, ואותם שדות קלט מוקפדים).
-
-ביצעתי מספר התאמות קטנות בקוד המקורי שלך כדי לחבר את המודול:
-
-* הוספתי את המאפיין `months` למערך ה-`table` (שמחושב ב-`useMemo`) כדי שהמודול יידע לשלוף את ההסתברות המדויקת לפי הזמן שנותר עד לפקיעה.
-* בניתי את הקומפוננטה `OptionsEvaluator` ממש מעל פונקציית ה-`App` הראשית, כך שהכל נשאר בקובץ אחד מסודר.
-* מיקמתי את הכלי בדיוק היכן שביקשת – מתחת לטבלת ההסתברויות (בסוף גריד ה-`lower`).
-
-להלן הקוד המלא והמעודכן לקובץ ה-`App.jsx`. תוכל פשוט להעתיק ולהדביק אותו במקום הקוד הקיים:
-
-```jsx
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar } from "recharts";
 
@@ -169,136 +158,6 @@ tbody td:first-child{font-family:'Assistant',sans-serif;color:var(--ink);font-we
 .num,.px,.chip .v,.stat .row b,.dstat .val,.movebar b.n{direction:ltr;unicode-bidi:isolate}
 `;
 
-// ---------- Options Evaluator Component ----------
-function OptionsEvaluator({ targetPrice, probabilities }) {
-  const [expirationDate, setExpirationDate] = useState('');
-  const [options, setOptions] = useState([]);
-  const [newStrike, setNewStrike] = useState('');
-  const [newPremium, setNewPremium] = useState('');
-
-  const handleAddOption = () => {
-    if (!newStrike || !newPremium) return;
-    setOptions([...options, { 
-      id: Date.now(), 
-      strike: parseFloat(newStrike), 
-      premium: parseFloat(newPremium) 
-    }]);
-    setNewStrike('');
-    setNewPremium('');
-  };
-
-  const handleRemoveOption = (id) => {
-    setOptions(options.filter(opt => opt.id !== id));
-  };
-
-  const evaluatedOptions = useMemo(() => {
-    if (!expirationDate || options.length === 0 || !probabilities || probabilities.length === 0) {
-      return [];
-    }
-
-    const today = new Date();
-    const expiry = new Date(expirationDate);
-    const monthsToExpiry = Math.max(0.5, (expiry - today) / (1000 * 60 * 60 * 24 * 30));
-
-    // Matching the closest probability horizon based on months
-    const closestProb = probabilities.reduce((prev, curr) => 
-      Math.abs(curr.months - monthsToExpiry) < Math.abs(prev.months - monthsToExpiry) ? curr : prev
-    );
-
-    // Divid by 100 since the table array saves them as percentages
-    const probRN = closestProb.touchRN / 100;
-    const probPhys = closestProb.touchPh / 100;
-
-    const results = options.map(opt => {
-      const valueAtTarget = Math.max(0, targetPrice - opt.strike);
-      const expectedValueRN = (probRN * valueAtTarget) - opt.premium;
-      const expectedValuePhys = (probPhys * valueAtTarget) - opt.premium;
-      const expectedRoiRN = (expectedValueRN / opt.premium) * 100;
-      const expectedRoiPhys = (expectedValuePhys / opt.premium) * 100;
-
-      return {
-        ...opt,
-        valueAtTarget,
-        expectedValueRN,
-        expectedRoiRN,
-        expectedValuePhys,
-        expectedRoiPhys,
-      };
-    });
-
-    return results.sort((a, b) => b.expectedRoiRN - a.expectedRoiRN);
-
-  }, [expirationDate, options, targetPrice, probabilities]);
-
-  return (
-    <div className="card" style={{ marginTop: 14 }}>
-      <div className="card-title">מידול ובחינת כדאיות אופציות (Target: ${targetPrice})</div>
-      
-      <div className="inputs" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div className="field" style={{ flex: 1, minWidth: 150 }}>
-          <label>תאריך פקיעה</label>
-          <input type="date" value={expirationDate} onChange={(e) => setExpirationDate(e.target.value)} />
-        </div>
-        <div className="field" style={{ flex: 1, minWidth: 120 }}>
-          <label>סטרייק ($)</label>
-          <input type="number" value={newStrike} onChange={(e) => setNewStrike(e.target.value)} />
-        </div>
-        <div className="field" style={{ flex: 1, minWidth: 120 }}>
-          <label>פרמיה / עלות ($)</label>
-          <input type="number" value={newPremium} onChange={(e) => setNewPremium(e.target.value)} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
-          <button className="load-btn" onClick={handleAddOption} style={{ height: 41, padding: '0 16px' }}>
-            הוסף אופציה להשוואה
-          </button>
-        </div>
-      </div>
-
-      {evaluatedOptions.length > 0 && (
-        <div className="tbl-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>סטרייק</th>
-                <th>עלות (פרמיה)</th>
-                <th>שווי ביעד</th>
-                <th style={{ color: C.rn }}>תוחלת תשואה (RN)</th>
-                <th style={{ color: C.ph }}>תוחלת תשואה (Phys)</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {evaluatedOptions.map((opt) => (
-                <tr key={opt.id}>
-                  <td style={{ direction: 'ltr' }}>${opt.strike}</td>
-                  <td style={{ direction: 'ltr' }}>${opt.premium}</td>
-                  <td style={{ direction: 'ltr' }}>${opt.valueAtTarget.toFixed(2)}</td>
-                  <td style={{ color: opt.expectedRoiRN > 0 ? C.up : C.down, fontWeight: 600, direction: 'ltr' }}>
-                    {opt.expectedRoiRN > 0 ? '+' : ''}{opt.expectedRoiRN.toFixed(1)}%
-                  </td>
-                  <td style={{ color: opt.expectedRoiPhys > 0 ? C.up : C.down, fontWeight: 600, direction: 'ltr' }}>
-                    {opt.expectedRoiPhys > 0 ? '+' : ''}{opt.expectedRoiPhys.toFixed(1)}%
-                  </td>
-                  <td>
-                    <button onClick={() => handleRemoveOption(opt.id)} style={{ background: 'transparent', border: 'none', color: C.down, cursor: 'pointer', fontWeight: 600 }}>
-                      הסר
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ fontSize: 13, color: C.sub, marginTop: 12, lineHeight: 1.5, fontWeight: 500 }}>
-            * הדירוג מבוצע מהתשואה הגבוהה לנמוכה לפי הסתברות Touch·RN.<br/>
-            * שווי האופציה ביעד מחושב באופן שמרני לפי הערך הפנימי בלבד (Target - Strike).
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------- Main App Component ----------
 export default function App() {
   const [snap, setSnap] = useState(FALLBACK);
   const [symbolInput, setSymbolInput] = useState("ADBE");
@@ -360,7 +219,6 @@ export default function App() {
     const nuIV = hasIV ? r - 0.5 * ivSigma * ivSigma : 0;
     return HORIZONS.map(h => ({
       label: h.label,
-      months: h.years * 12, // התווסף כדי שהכלי יוכל לחפש התאמה של זמנים
       touchRN: touchProb(Math.abs(b), isUp ? nuRN : -nuRN, sigma, h.years) * 100,
       touchPh: touchProb(Math.abs(b), isUp ? nuPh : -nuPh, sigma, h.years) * 100,
       finishRN: finishProb(Math.abs(b), isUp ? nuRN : -nuRN, sigma, h.years) * 100,
@@ -570,12 +428,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* ------ HIERARCHY INJECTION: Options Evaluator ------ */}
-        <OptionsEvaluator targetPrice={ST} probabilities={table} />
-
         {/* Return distribution row */}
         {dist && (
-          <div className="grid-lower" style={{ marginTop: 14 }}>
+          <div className="grid-lower">
             <div className="card">
               <div className="card-title">התפלגות תשואות יומיות · מול נורמל</div>
               <ResponsiveContainer width="100%" height={262}>
@@ -611,7 +466,7 @@ export default function App() {
         )}
 
         {/* Notes */}
-        <div className="card notes" style={{ marginTop: 14 }}>
+        <div className="card notes">
           <strong style={{ color: C.rn }}>Touch</strong> — הסתברות שהמניה תיגע ביעד לפחות פעם אחת (רלוונטי לאחזקת אופציות). תמיד ≥ Finish.{"  ·  "}
           <strong style={{ color: C.fin }}>Finish</strong> — הסתברות לסגירה מעל היעד בסוף התקופה.<br />
           <strong style={{ color: C.ph }}>RN (μ=r)</strong> benchmark הוגן{"  ·  "}<strong style={{ color: C.ph }}>Physical (μ היסטורי)</strong> תזת העבר — ה-edge הוא הפער ביניהן; היזהר מ-μ אופטימי מדי.
@@ -628,5 +483,3 @@ export default function App() {
     </div>
   );
 }
-
-```
