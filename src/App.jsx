@@ -209,6 +209,9 @@ tbody td:first-child{font-family:'Assistant',sans-serif;color:var(--ink);font-we
 .delbtn:hover{border-color:var(--down)}
 .implied-btn{width:100%;text-align:right;cursor:pointer;background:rgba(34,211,238,.07);border:1px solid var(--border);color:var(--accent);border-radius:9px;padding:10px 12px;font-size:15px;font-family:var(--mono);font-weight:600;transition:all .15s}
 .implied-btn:hover{border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.12)}
+.musrc{flex-wrap:wrap;gap:4px}
+.musrc .pbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.musrc .n{direction:ltr;unicode-bidi:isolate;font-family:var(--mono);font-size:13px}
 .rank-row1 td{background:rgba(34,211,238,.07)}
 .warnbox{background:rgba(244,114,182,.07);border:1px solid rgba(244,114,182,.35);color:var(--ph);border-radius:10px;padding:11px 14px;font-size:13px;line-height:1.6;margin-bottom:16px}
 .warnbox b{color:var(--ink)}
@@ -361,6 +364,11 @@ export default function App() {
   const addOpt = () => setOptions(os => [...os, { id: os.reduce((m, o) => Math.max(m, o.id), 0) + 1, K: 0, premium: 0 }]);
   const removeOpt = (id) => setOptions(os => os.filter(o => o.id !== id));
   const RANK_LABELS = { EVpct: "תוחלת תשואה %", EV: "תוחלת רווח $", POP: "Prob. of Profit", iv: "IV · זול→יקר" };
+
+  // μ source selector helpers (writes into the shared μ field)
+  const muFmt = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+  const muMatch = (v) => v != null && Math.abs(muHistPct - v) < 0.06;
+  const applyMu = (v) => { if (v == null) return; setMuHistPct(+v.toFixed(1)); setTouched(true); };
   const onModel = (setter) => (e) => { setter(+e.target.value); setTouched(true); };
 
   const chips = [
@@ -568,16 +576,28 @@ export default function App() {
             <div className="field"><label>ימים לפקיעה</label><input type="number" value={optDays} onChange={(e) => setOptDays(+e.target.value)} /></div>
             <div className="field"><label>מחיר יעד (לחישוב μ)</label><input type="number" value={targetPx} onChange={(e) => setTargetPx(+e.target.value)} /></div>
             <div className="field">
-              <label style={{ color: C.accent }}>μ שהתזה מגלמת · שנתי</label>
-              <button className="implied-btn" onClick={() => { setMuHistPct(+impliedMuPct.toFixed(1)); setTouched(true); }}>
-                {impliedMuPct >= 0 ? "+" : ""}{impliedMuPct.toFixed(1)}% &nbsp;← החל על μ
-              </button>
+              <label style={{ color: C.accent }}>מקור μ (שנתי)</label>
+              <div className="periods musrc">
+                <button className={"pbtn" + (muMatch(snap.mu12) ? " on" : "")} onClick={() => applyMu(snap.mu12)} title="μ ארית׳ היסטורי · שנה">
+                  היסטורי <span className="n">{muFmt(snap.mu12)}</span>
+                </button>
+                <button className={"pbtn" + (muMatch(impliedMuPct) ? " on" : "")} onClick={() => applyMu(impliedMuPct)} title="μ שהמסלול הממוצע שלו נוחת על מחיר היעד">
+                  תזה <span className="n">{muFmt(impliedMuPct)}</span>
+                </button>
+                <button className={"pbtn" + (muMatch(rPct) ? " on" : "")} onClick={() => applyMu(rPct)} title="ריסק-נייטרלי · μ=r · benchmark השוק">
+                  RN <span className="n">{muFmt(rPct)}</span>
+                </button>
+              </div>
+              <div style={{ fontSize: 12, color: C.sub, marginTop: 6, fontWeight: 500 }}>
+                {muMatch(snap.mu12) ? "מופעל: μ היסטורי." : muMatch(impliedMuPct) ? "מופעל: μ של התזה." : muMatch(rPct) ? "מופעל: ריסק-נייטרלי." : "מופעל: ערך ידני."}
+              </div>
             </div>
           </div>
 
           <div className="warnbox">
-            ⚠ <b>מלכודת ה-μ:</b> "החל" מזין דריפט שהמסלול הממוצע שלו נוחת בדיוק על היעד — כלומר הזנת המסקנה לתוך המודל.
-            המספרים שיתקבלו מותנים בכך שהתזה נכונה, ואינם אישוש בלתי-תלוי שלה. כעת μ = <b>{muHistPct}%</b> · σ = <b>{sigmaPct}%</b> · r = <b>{rPct}%</b>.
+            ⚠ <b>מלכודת ה-μ:</b> בחירת "תזה" מזינה דריפט שהמסלול הממוצע שלו נוחת בדיוק על היעד — כלומר הזנת המסקנה לתוך המודל.
+            המספרים שיתקבלו מותנים בכך שהתזה נכונה, ואינם אישוש בלתי-תלוי שלה. השווה תמיד מול "RN" (μ=r) — אם תחת ריסק-נייטרלי ה-EV שלילי, כל ה-edge מגיע מהדריפט בלבד.
+            כעת μ = <b>{muHistPct}%</b> · σ = <b>{sigmaPct}%</b> · r = <b>{rPct}%</b>.
           </div>
 
           {/* editable option rows */}
