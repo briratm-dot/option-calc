@@ -80,9 +80,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid symbol. Use letters/digits, e.g. ADBE, AAPL, BRK.B." });
   }
 
-  // pull ~400 calendar days to guarantee >=252 trading days
+  // pull ~2 years (~800 calendar days) so the chart's 2Y view is fully populated.
+  // σ/μ still use trailing 126/252-day windows from the same series.
   const to = new Date();
-  const from = new Date(to.getTime() - 400 * 24 * 3600 * 1000);
+  const from = new Date(to.getTime() - 800 * 24 * 3600 * 1000);
   const iso = (d) => d.toISOString().slice(0, 10);
 
   const histUrl = `${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${iso(from)}&to=${iso(to)}&apikey=${apikey}`;
