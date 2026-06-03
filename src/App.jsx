@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, ComposedChart, Bar } from "recharts";
 
 // ===== Fallback snapshot (ADBE) shown before the first live fetch =====
 const FALLBACK = {
@@ -55,54 +55,54 @@ const PERIODS = [
 
 // JS color tokens (mirror the CSS vars) for recharts + value-driven colors
 const C = {
-  ink: "#e6edf3", sub: "#7d8a9c", panel: "#0e141c", border: "#1d2632",
-  accent: "#22d3ee", rn: "#4d9fff", ph: "#f5b942", iv: "#a78bfa", fin: "#5b6b7f",
-  up: "#2ee6a8", down: "#ff5470", grid: "#19212c",
+  ink: "#e6edf3", sub: "#c2cdd9", panel: "#0e141c", border: "#1d2632",
+  accent: "#22d3ee", rn: "#8b5cf6", ph: "#f472b6", iv: "#38bdf8", fin: "#6b7a8d",
+  up: "#2ee6a8", down: "#ff5470", grid: "#19212c", hist: "#8b5cf6",
 };
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 *{box-sizing:border-box}
 :root{
-  --ink:#e6edf3; --sub:#7d8a9c;
-  --panel-a:rgba(255,255,255,.045); --panel-b:rgba(255,255,255,.016);
-  --border:rgba(255,255,255,.075);
-  --accent:#22d3ee; --rn:#4d9fff; --ph:#f5b942; --iv:#a78bfa; --fin:#5b6b7f;
+  --ink:#e6edf3; --sub:#c2cdd9;
+  --panel-a:rgba(255,255,255,.05); --panel-b:rgba(255,255,255,.018);
+  --border:rgba(255,255,255,.08);
+  --accent:#22d3ee; --rn:#8b5cf6; --ph:#f472b6; --iv:#38bdf8; --fin:#6b7a8d;
   --up:#2ee6a8; --down:#ff5470;
   --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
-.app{min-height:100vh;color:var(--ink);padding:22px 20px 40px;
+.app{min-height:100vh;color:var(--ink);padding:24px 22px 44px;font-size:16px;
   font-family:'IBM Plex Sans Hebrew',system-ui,sans-serif;
   background:
-    radial-gradient(1100px 520px at 88% -8%,rgba(34,211,238,.10),transparent 60%),
-    radial-gradient(900px 500px at 4% 112%,rgba(77,159,255,.07),transparent 60%),
+    radial-gradient(1100px 520px at 88% -8%,rgba(139,92,246,.12),transparent 60%),
+    radial-gradient(900px 500px at 4% 112%,rgba(34,211,238,.09),transparent 60%),
     #070b11;}
-.wrap{max-width:1340px;margin:0 auto}
+.wrap{max-width:1360px;margin:0 auto}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
-.topbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:2.5px;color:var(--accent);margin-bottom:7px}
-.title{margin:0;font-size:24px;font-weight:700;letter-spacing:-.3px}
+.topbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:2.5px;color:var(--accent);margin-bottom:8px;font-weight:600}
+.title{margin:0;font-size:30px;font-weight:700;letter-spacing:-.3px}
 .symbox{display:flex;gap:8px}
-.sym-input{width:150px;text-transform:uppercase;letter-spacing:2px;font-family:var(--mono);
-  background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--ink);
-  border-radius:10px;padding:10px 12px;font-size:15px;outline:none}
+.sym-input{width:160px;text-transform:uppercase;letter-spacing:2px;font-family:var(--mono);
+  background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--ink);
+  border-radius:10px;padding:11px 13px;font-size:17px;outline:none}
 .sym-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.15)}
-.load-btn{border:none;cursor:pointer;border-radius:10px;padding:0 20px;font-weight:600;font-size:14px;
-  font-family:inherit;color:#04181c;background:linear-gradient(135deg,#22d3ee,#4d9fff);
-  display:flex;align-items:center;gap:8px;box-shadow:0 4px 18px rgba(34,211,238,.25);transition:box-shadow .2s,transform .1s}
-.load-btn:hover{box-shadow:0 6px 26px rgba(34,211,238,.4)}
+.load-btn{border:none;cursor:pointer;border-radius:10px;padding:0 22px;font-weight:700;font-size:15px;
+  font-family:inherit;color:#06121c;background:linear-gradient(135deg,#22d3ee,#8b5cf6);
+  display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(124,92,246,.3);transition:box-shadow .2s,transform .1s}
+.load-btn:hover{box-shadow:0 6px 28px rgba(124,92,246,.45)}
 .load-btn:active{transform:translateY(1px)}
 .load-btn:disabled{opacity:.6;cursor:default}
 
 .errbar{background:rgba(255,84,112,.1);border:1px solid rgba(255,84,112,.5);color:#ffb3c0;
-  border-radius:10px;padding:11px 15px;margin-bottom:16px;font-size:14px}
+  border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:15px;font-weight:600}
 
 .card{position:relative;background:linear-gradient(180deg,var(--panel-a),var(--panel-b));
-  border:1px solid var(--border);border-radius:14px;padding:16px;overflow:hidden;backdrop-filter:blur(6px)}
+  border:1px solid var(--border);border-radius:14px;padding:17px;overflow:hidden;backdrop-filter:blur(6px)}
 .card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(34,211,238,.55),transparent)}
-.card-title{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sub);margin-bottom:13px;font-weight:600}
+  background:linear-gradient(90deg,transparent,rgba(139,92,246,.55),rgba(34,211,238,.55),transparent)}
+.card-title{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ink);margin-bottom:14px;font-weight:700}
 
 .grid-main{display:grid;grid-template-columns:1.45fr 1fr;gap:14px;margin-bottom:14px}
 .grid-lower{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin-bottom:14px}
@@ -110,46 +110,50 @@ const CSS = `
 
 .price-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .price-id{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.sym{font-size:20px;font-weight:700}
-.px{font-family:var(--mono);font-size:18px;color:var(--accent)}
-.nm{font-size:12px;color:var(--sub)}
-.meta{font-size:11px;color:var(--sub);font-family:var(--mono)}
+.sym{font-size:23px;font-weight:700}
+.px{font-family:var(--mono);font-size:21px;color:var(--accent);font-weight:600}
+.nm{font-size:14px;color:var(--sub);font-weight:600}
 .periods{display:flex;gap:3px;background:rgba(255,255,255,.03);padding:3px;border-radius:10px;border:1px solid var(--border)}
-.pbtn{border:none;background:transparent;color:var(--sub);font-family:var(--mono);font-size:12px;
-  padding:6px 9px;border-radius:7px;cursor:pointer;transition:all .15s}
-.pbtn:hover{color:var(--ink)}
-.pbtn.on{background:rgba(34,211,238,.15);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(34,211,238,.4)}
+.pbtn{border:none;background:transparent;color:var(--ink);font-family:var(--mono);font-size:14px;font-weight:600;
+  padding:7px 11px;border-radius:7px;cursor:pointer;transition:all .15s}
+.pbtn:hover{color:var(--accent)}
+.pbtn.on{background:rgba(34,211,238,.16);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(34,211,238,.45)}
 
-.returns{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
-.chip{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:9px;padding:8px 5px;text-align:center}
-.chip .l{font-size:10px;color:var(--sub);margin-bottom:3px}
-.chip .v{font-family:var(--mono);font-size:14px;font-weight:600}
+.returns{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:13px}
+.chip{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:9px;padding:9px 5px;text-align:center}
+.chip .l{font-size:12px;color:var(--ink);margin-bottom:4px;font-weight:600}
+.chip .v{font-family:var(--mono);font-size:16px;font-weight:600}
 
-.inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.field label{display:block;font-size:11px;color:var(--sub);margin-bottom:5px;letter-spacing:.3px}
-.field input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--ink);
-  border-radius:9px;padding:9px 11px;font-size:14px;font-family:var(--mono);outline:none}
+.inputs{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:13px}
+.field label{display:block;font-size:13px;color:var(--ink);margin-bottom:6px;letter-spacing:.2px;font-weight:600}
+.field input{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--ink);
+  border-radius:9px;padding:10px 12px;font-size:16px;font-family:var(--mono);outline:none}
 .field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.13)}
 
-.movebar{display:flex;gap:14px;flex-wrap:wrap;align-items:center;background:rgba(255,255,255,.03);
-  border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:13px;color:var(--sub);margin-bottom:12px}
+.movebar{display:flex;gap:16px;flex-wrap:wrap;align-items:center;background:rgba(255,255,255,.03);
+  border:1px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;color:var(--ink);margin-bottom:13px;font-weight:600}
 .movebar b{font-family:var(--mono)}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.stat{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:9px 12px}
-.stat .h{font-size:10px;color:var(--sub);margin-bottom:6px}
-.stat .row{display:flex;gap:14px;font-size:13px;font-family:var(--mono)}
+.stat{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:10px 13px}
+.stat .h{font-size:12px;color:var(--ink);margin-bottom:6px;font-weight:600}
+.stat .row{display:flex;gap:16px;font-size:15px;font-family:var(--mono);font-weight:600}
 
 .tbl-scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13px;min-width:480px}
-thead th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);text-align:right;
-  padding:8px 9px;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
-tbody td{padding:9px 9px;border-bottom:1px solid rgba(255,255,255,.04);font-family:var(--mono);white-space:nowrap}
-tbody tr:hover{background:rgba(255,255,255,.025)}
-tbody td:first-child{font-family:'IBM Plex Sans Hebrew',sans-serif;color:var(--ink);font-weight:500}
+table{width:100%;border-collapse:collapse;font-size:15px;min-width:480px}
+thead th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);text-align:right;
+  padding:9px 9px;border-bottom:1px solid var(--border);font-weight:700;white-space:nowrap}
+tbody td{padding:10px 9px;border-bottom:1px solid rgba(255,255,255,.04);font-family:var(--mono);white-space:nowrap;font-weight:500}
+tbody tr:hover{background:rgba(255,255,255,.03)}
+tbody td:first-child{font-family:'IBM Plex Sans Hebrew',sans-serif;color:var(--ink);font-weight:600}
 
-.notes{font-size:12.5px;color:var(--sub);line-height:1.75}
-.notes b{color:var(--ink)}
-.spin{width:14px;height:14px;border:2px solid #04181c;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+.dstat{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:15px}
+.dstat:last-child{border-bottom:none}
+.dstat .k{color:var(--ink);font-weight:600}
+.dstat .val{font-family:var(--mono);font-weight:600}
+
+.notes{font-size:14px;color:var(--sub);line-height:1.8;font-weight:500}
+.notes b,.notes strong{color:var(--ink);font-weight:700}
+.spin{width:14px;height:14px;border:2px solid #06121c;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 `;
 
@@ -240,6 +244,29 @@ export default function App() {
     }
     return pts;
   }, [b, sigma, muHist, r, isUp, hasIV, ivSigma]);
+
+  // Historical daily log-return distribution + moments + normal overlay
+  const dist = useMemo(() => {
+    const closes = (snap.series || []).map(p => p.c);
+    if (closes.length < 20) return null;
+    const lr = [];
+    for (let i = 1; i < closes.length; i++) lr.push(Math.log(closes[i] / closes[i - 1]) * 100); // daily %
+    const n = lr.length;
+    const m = lr.reduce((s, x) => s + x, 0) / n;
+    const variance = lr.reduce((s, x) => s + (x - m) * (x - m), 0) / (n - 1);
+    const sd = Math.sqrt(variance);
+    const skew = lr.reduce((s, x) => s + Math.pow((x - m) / sd, 3), 0) / n;
+    const kurt = lr.reduce((s, x) => s + Math.pow((x - m) / sd, 4), 0) / n - 3;
+    const lo = m - 4 * sd, hi = m + 4 * sd, bins = 27, w = (hi - lo) / bins;
+    const counts = new Array(bins).fill(0);
+    lr.forEach(x => { let idx = Math.floor((x - lo) / w); if (idx < 0) idx = 0; if (idx >= bins) idx = bins - 1; counts[idx]++; });
+    const data = counts.map((c, i) => {
+      const center = lo + (i + 0.5) * w;
+      const density = (1 / (sd * Math.sqrt(2 * Math.PI))) * Math.exp(-((center - m) * (center - m)) / (2 * variance));
+      return { x: +center.toFixed(2), count: c, normal: +(density * n * w).toFixed(2) };
+    });
+    return { data, m, sd, skew, kurt, worst: Math.min(...lr), best: Math.max(...lr), n, annSd: sd * Math.sqrt(252) };
+  }, [snap]);
 
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const pctColor = (v) => v == null ? C.sub : v >= 0 ? C.up : C.down;
@@ -341,7 +368,7 @@ export default function App() {
                 <div className="row"><span>σ <b style={{ color: C.rn }}>{snap.vol12?.toFixed(1)}%</b></span><span>μ <b style={{ color: pctColor(snap.mu12) }}>{pct(snap.mu12)}</b></span></div>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 10, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: C.sub, marginTop: 10, lineHeight: 1.5, fontWeight: 500 }}>
               מאותחל ב-σ/μ של שנה.{touched && <span style={{ color: C.ph }}> ערכים נערכו ידנית.</span>}
             </div>
           </div>
@@ -399,6 +426,43 @@ export default function App() {
           </div>
         </div>
 
+        {/* Return distribution row */}
+        {dist && (
+          <div className="grid-lower">
+            <div className="card">
+              <div className="card-title">התפלגות תשואות יומיות · מול נורמל</div>
+              <ResponsiveContainer width="100%" height={262}>
+                <ComposedChart data={dist.data} margin={{ top: 4, right: 14, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="x" stroke={C.sub} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} minTickGap={28} />
+                  <YAxis stroke={C.sub} tick={{ fontSize: 11 }} width={32} />
+                  <Tooltip contentStyle={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, color: C.ink, fontSize: 13 }}
+                    formatter={(val, name) => [val, name === "count" ? "ימים בפועל" : "נורמל צפוי"]} labelFormatter={(l) => `תשואה ${l}%`} />
+                  <Bar dataKey="count" fill={C.hist} fillOpacity={0.55} radius={[3, 3, 0, 0]} />
+                  <Line type="monotone" dataKey="normal" stroke={C.accent} strokeWidth={2.5} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="card">
+              <div className="card-title">מומנטים של ההתפלגות</div>
+              <div className="dstat"><span className="k">ימי מסחר במדגם</span><span className="val" style={{ color: C.ink }}>{dist.n}</span></div>
+              <div className="dstat"><span className="k">σ יומי</span><span className="val" style={{ color: C.rn }}>{dist.sd.toFixed(2)}%</span></div>
+              <div className="dstat"><span className="k">σ מנותח שנתי</span><span className="val" style={{ color: C.rn }}>{dist.annSd.toFixed(1)}%</span></div>
+              <div className="dstat"><span className="k">Skew (אסימטריה)</span><span className="val" style={{ color: dist.skew < -0.2 ? C.down : dist.skew > 0.2 ? C.up : C.ink }}>{dist.skew.toFixed(2)}</span></div>
+              <div className="dstat"><span className="k">Excess Kurtosis</span><span className="val" style={{ color: dist.kurt > 1 ? C.ph : C.ink }}>{dist.kurt.toFixed(2)}</span></div>
+              <div className="dstat"><span className="k">היום הגרוע ביותר</span><span className="val" style={{ color: C.down }}>{dist.worst.toFixed(1)}%</span></div>
+              <div className="dstat"><span className="k">היום הטוב ביותר</span><span className="val" style={{ color: C.up }}>{dist.best.toFixed(1)}%</span></div>
+              <div style={{ marginTop: 12, fontSize: 13.5, color: C.sub, lineHeight: 1.7, fontWeight: 500 }}>
+                {dist.kurt > 1
+                  ? <><b style={{ color: C.ph }}>Fat tails:</b> קורטוזיס עודף חיובי משמעותי — קפיצות קיצוניות שכיחות יותר ממה ש-GBM (נורמלי) מניח. ההסתברויות למהלכים גדולים <b>מוערכות בחסר</b> במודל.</>
+                  : <>קורטוזיס עודף נמוך — ההתפלגות קרובה יחסית לנורמלית, והנחת ה-GBM סבירה כאן.</>}
+                {dist.skew < -0.2 && <> {" "}<b style={{ color: C.down }}>Skew שלילי</b> — נטייה לזנב ירידות חד.</>}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Notes */}
         <div className="card notes">
           <strong style={{ color: C.rn }}>Touch</strong> — הסתברות שהמניה תיגע ביעד לפחות פעם אחת (רלוונטי לאחזקת אופציות). תמיד ≥ Finish.{"  ·  "}
@@ -410,7 +474,7 @@ export default function App() {
             const col = gap > 3 ? C.down : gap < -3 ? C.up : C.sub;
             return <div style={{ marginTop: 6, color: col }}>פער IV−HV: <b>{gap >= 0 ? "+" : ""}{gap.toFixed(1)} נק׳ σ</b> · {gap > 3 ? "השוק מתמחר תנודתיות גבוהה מההיסטורית — touch מבוסס-HV אופטימי מול הפרמיה." : gap < -3 ? "IV נמוך מההיסטורי — האופציה אולי זולה יחסית." : "IV ו-HV קרובים — בסיס סביר להשוואה."}</div>;
           })()}
-          <div style={{ marginTop: 6, fontSize: 11.5 }}>drift: μ הוא הדריפט הארית׳ (μ = log-drift + σ²/2), כך ש-ν = μ − σ²/2 משחזר את הדריפט הלוגריתמי האמפירי. כל מודל הוא הפשטה; אין כאן ייעוץ השקעות.</div>
+          <div style={{ marginTop: 6, fontSize: 13 }}>drift: μ הוא הדריפט הארית׳ (μ = log-drift + σ²/2), כך ש-ν = μ − σ²/2 משחזר את הדריפט הלוגריתמי האמפירי. כל מודל הוא הפשטה; אין כאן ייעוץ השקעות.</div>
         </div>
 
       </div>
